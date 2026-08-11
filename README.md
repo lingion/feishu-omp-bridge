@@ -10,8 +10,8 @@
   <a href="https://github.com/can1357/oh-my-pi"><img src="https://img.shields.io/badge/backend-omp-6366F1?style=flat-square" alt="omp"></a>
 </p>
 
-# Feishu-omp-bridge
-
+Current version: **0.1.0**
+Last verified: 2026-08-11 · Tested against a live Feishu self-built bot
 > A Feishu/Lark <-> omp (Oh My Pi) bidirectional messaging bridge.
 > DM or @mention a bot -> drives an omp coding agent -> streams the reply back as an interactive Feishu card.
 
