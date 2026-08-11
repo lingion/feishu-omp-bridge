@@ -1,137 +1,166 @@
 # feishu-omp-bridge
 
-A full-featured **Feishu/Lark channel** for the omp (Oh My Pi) terminal agent —
-aligned with [OpenClaw's `@openclaw/feishu` plugin](https://docs.openclaw.ai/channels/feishu)
-and [Hermes Agent's messaging gateway](https://hermes-agent.nousresearch.com/docs/user-guide/messaging).
+A Feishu/Lark channel for the **omp (Oh My Pi)** terminal coding agent. DM or
+@mention a Feishu bot → it drives an omp session → the agent streams its reply
+back into the chat.
 
-DM or @mention a Feishu bot → it drives an omp session → the agent streams its
-reply back into the chat. Each chat (or group scope) gets a persistent omp session.
+This is **not** a 1:1 port of OpenClaw's `@openclaw/feishu` plugin or Hermes
+Agent's feishu platform (both ~8,000 lines). It is a smaller channel (~2,270
+lines) that covers the core messaging surface. The matrix below was
+cross-verified against the **actual installed source** of both reference plugins
+(`~/.hermes/hermes-agent/plugins/platforms/feishu/`, 8,167 lines;
+`/usr/local/lib/node_modules/openclaw/docs/channels/feishu.md`), not just their
+public docs.
 
 ```mermaid
 flowchart LR
   A[Feishu/Lark] -->|WSClient long-conn| B[bridge]
   B -->|createAgentSession SDK| C[omp agent]
   C -->|text_delta events| B
-  B -->|card patch, streaming| A
-  B -->|lark-mcp| D[Feishu docs/wiki/drive/bitable]
+  B -->|streaming card patch| A
+  B -->|read tool| D[saved attachments]
 ```
 
-## Feature matrix (aligned with OpenClaw / Hermes)
+## What works (implemented + cross-verified)
 
-| Capability | Status |
+| Capability | Source verified against | Notes |
+|---|---|---|
+| Bot DMs + group chats | OpenClaw / Hermes | WSClient long-connection, no public URL |
+| Streaming card replies | Hermes `flush`/patch | debounced card edit |
+| Receive **images** → omp `ImageAttachment` | Hermes `_download_feishu_image` | base64 to omp |
+| Receive **.txt/.md** files | Hermes `_maybe_extract_text_document` | content inlined (<64 KiB, UTF-8) |
+| Receive **binary files** (pdf/doc/zip/…) | Hermes saved-attachment model | saved under `dataDir/incoming/`, placeholder + path so omp's `read` tool opens it |
+| Receive **audio/video/sticker** | Hermes `_handle_message_event_data` | saved + placeholder |
+| Send **images/files/audio/video** | Hermes `send_image/file/voice/video` | native bubbles |
+| Rich text **post** parse (inbound→text) + build (outbound) | Hermes `_build_markdown_post_rows` | fenced-code-block isolation |
+| `dmPolicy`: allowlist / pairing / open | OpenClaw `dmPolicy` | pairing codes in SQLite |
+| `groupPolicy`: open / allowlist / disabled + `requireMention` + per-group overrides | OpenClaw `groupPolicy` | |
+| `groupSessionScope`: group / group_sender / group_topic / group_topic_sender | OpenClaw `groupSessionScope` | |
+| Admin/user command tier split | Hermes admin/user tiers | |
+| Per-chat serialization lock (LRU) | Hermes `_get_chat_lock` | |
+| Card-action dedup | Hermes `_is_card_action_duplicate` | |
+| Slash commands: `/help /whoami /status /reset /model /sessions /resume` | Hermes command set | tier-gated |
+| Per-chat persistent `/model` override | Hermes `/model` | survives restart |
+| Delivery ledger (at-least-once redelivery) | Hermes `state.db` ledger | crash-recovery |
+| Typing indicator (reaction) | Hermes `send_typing` | OK emoji |
+| Bot-loop protection (ignore other bots) | OpenClaw `allowBots` | default off |
+| Events: bot added/removed, recall, read, drive comment, meeting invite | Hermes `_on_*` | **notify-only** (see limits) |
+| Feishu workspace tools (doc/wiki/drive/bitable/chat) | OpenClaw `tools.*` | via official `lark-mcp` MCP server, config-gated |
+| QR onboarding (`registerApp`) | Feishu SDK | auto-creates self-built app |
+| JSON5 config aligned with `channels.feishu.*` | OpenClaw config shape | `.env` fallback for credentials |
+| launchd service install | Hermes gateway install | `bun run service:install` |
+
+## What does NOT work (and why)
+
+These are **honest gaps**, not "todo soon". Each is either an omp architecture
+limit or a deliberately-cut scope item.
+
+| Gap | Reason | Reference behavior |
+|---|---|---|
+| **Interactive approval** (button blocks the agent) | omp approval is a **synchronous policy** over mode+config (`resolveApproval`), with **no blocking/awaitable hook**. It cannot be paused for a human button-press. | Hermes `send_exec_approval` + `resolve_gateway_approval()` blocks the agent thread; omp has no equivalent. Bridge emits a **notification-only** card. |
+| **Clarify / online prompt cards** | Same omp limit — no blocking ask hook. | Hermes `send_update_prompt`. Bridge cannot replicate. |
+| **Drive comment rule engine** | Out of scope. Hermes ships 1,800+ lines (`feishu_comment.py` + `feishu_comment_rules.py`). | Bridge only **logs/notifies** the event. |
+| **Meeting auto-join** | Out of scope. Needs a `vc:meeting.bot.join:write` tool + beta-gated join flow. | Bridge only **notifies** the invite. |
+| **Audio transcription (ASR)** | No bundled ASR provider. | Hermes/OpenClaw both require a configured provider; without it they also emit a placeholder. Bridge emits placeholder. |
+| **Read-receipt → session bookkeeping** | Bridge logs the event only. | Hermes tracks for session state. |
+| **`/sessions` + `/resume` content** | Registry wired, but named-session bookkeeping is a **stub** (`listNamed`/`resumeNamed` return empty). Commands respond but list nothing yet. | |
+| **`replyInThread` topic creation** | Config key exists; outbound thread-creation not wired. | |
+| **Multi-account** | Config schema supports `accounts.*`; runtime uses the default account only. | |
+
+## Capability boundary (the honest one-liner)
+
+> A solid **messaging channel**: text/image/file/audio/video in, streaming cards
+> out, with OpenClaw/Hermes-grade access control, sessions, and reliability. It
+> is **not** the interactive-card / drive-comment / meeting-join product that the
+> full OpenClaw & Hermes feishu plugins are — those depend on agent-blocking
+> interactions omp does not expose, or on multi-thousand-line subsystems cut from
+> this scope.
+
+## Tested (live, against a real Feishu app)
+
+Verified end-to-end with the bridge connected to a real Feishu self-built bot
+(`registerApp` QR flow), logs inspected at each step:
+
+| Test | Result |
 |---|---|
-| Bot DMs + group chats | ✅ |
-| Streaming card replies | ✅ |
-| Receive images → omp ImageAttachment | ✅ |
-| Send images / files back | ✅ |
-| `dmPolicy`: allowlist / pairing / open | ✅ |
-| `groupPolicy`: open / allowlist / disabled + requireMention | ✅ |
-| Per-group overrides + sender allowlists | ✅ |
-| `groupSessionScope`: group / group_sender / group_topic / group_topic_sender | ✅ |
-| Admin/user command tier split | ✅ |
-| Slash commands: `/help /whoami /status /reset /model /sessions /resume` | ✅ |
-| Per-chat persistent `/model` override | ✅ |
-| Feishu workspace tools (doc/wiki/drive/bitable/chat via lark-mcp) | ✅ |
-| Delivery ledger (at-least-once redelivery after crash) | ✅ |
-| Typing indicator (reaction) + bot-loop protection | ✅ |
-| QR onboarding (`registerApp`) | ✅ |
-| launchd service install | ✅ |
+| Text message → streaming card reply | ✅ omp replied, card streamed |
+| Image message → omp sees image | ✅ |
+| `.txt` file → content inlined, omp read it | ✅ omp quoted the file content |
+| `.pdf` file → saved + placeholder, omp used `read` tool | ✅ omp opened the saved path |
+| Slash commands (`/help /status /model /reset /whoami`) | ✅ all routed, tier-gated |
+| Multi-session persistence + resume across restart | ✅ omp recalled prior session |
+| Bot loop protection / access control (allowlist) | ✅ stranger denied, owner allowed |
+| Reaction typing indicator (no `invalid emoji` error) | ✅ |
+
+### Unit-verified (smoke tests, not live)
+
+| Module | Check |
+|---|---|
+| `rich.ts` post parse/build | ✅ flattens post→text; code-fence isolation → 3 rows |
+| `concurrency.ts` chat lock | ✅ same-chat serial (A→B), different-chat concurrent |
+| `concurrency.ts` card dedup | ✅ first=false, repeat=true |
+| `tsc --noEmit` | ✅ zero errors |
+
+### Not yet tested live
+
+- Group chat + @mention routing (`groupPolicy` path)
+- Sticker inbound
+- Drive-comment / meeting-invite event delivery
+- Delivery-ledger redelivery after crash
+- launchd service install on this machine
 
 ## Architecture
 
-| File | Responsibility |
-|---|---|
-| `src/index.ts` | Main bridge: WSClient inbound → access → commands/media → omp → streamed card |
-| `src/config-loader.ts` + `config-types.ts` | JSON5 config: defaults merge, validation, path resolution |
-| `src/access.ts` | DM/group policies, pairing codes, admin/user tiers |
-| `src/media.ts` | Image/file download+upload, typing reactions |
-| `src/omp.ts` | omp `createAgentSession` + resume + image prompts + model overrides |
-| `src/commands.ts` | Slash-command registry + tier-gated router |
-| `src/scope.ts` | groupSessionScope keying + bot-loop detection |
-| `src/feishu-tools.ts` | lark-mcp preset mapping + scope guidance |
-| `src/ledger.ts` | at-least-once delivery ledger |
-| `src/store.ts` | SQLite: chat→session map + per-chat model overrides |
-| `src/service.ts` | launchd plist generator + install/uninstall |
-| `src/onboard.ts` | QR onboarding (`registerApp`) |
+| File | LOC | Responsibility |
+|---|---|---|
+| `src/index.ts` | 482 | Main bridge: WSClient inbound → access → commands/media → omp → streamed card |
+| `src/media.ts` | 233 | Image/file download+upload, downloadToPath, typing reactions |
+| `src/commands.ts` | 176 | Slash-command registry + tier-gated router |
+| `src/access.ts` | 170 | DM/group policies, pairing codes, admin/user tiers |
+| `src/config-loader.ts` | 158 | JSON5 defaults-merge + validation + path resolution |
+| `src/omp.ts` | 151 | omp `createAgentSession` + resume + image prompts + model overrides |
+| `src/config-types.ts` | 124 | Config type definitions (aligned `channels.feishu.*`) |
+| `src/ledger.ts` | 102 | At-least-once delivery ledger |
+| `src/store.ts` | 104 | SQLite: chat→session map + per-chat model overrides |
+| `src/events.ts` | 74 | Non-message event handlers (notify-only) |
+| `src/service.ts` | 83 | launchd plist generator + install/uninstall |
+| `src/rich.ts` | 84 | Feishu post parse/build (code-fence isolation) |
+| `src/onboard.ts` | 72 | QR onboarding (`registerApp`) |
+| `src/feishu-tools.ts` | 63 | lark-mcp preset mapping + scope guidance |
+| `src/concurrency.ts` | 57 | Per-chat LRU lock + card-action dedup |
+| `src/scope.ts` | 36 | groupSessionScope keying + bot-loop detection |
+| `src/types.ts` | 36 | `im.message.receive_v1` event payload type |
 
 ## Quick start
 
 ```bash
-bun install                                   # deps (China: --registry=npmmirror)
+bun install                                   # China: --registry=https://registry.npmmirror.com
 cp config.example.json5 feishu-bridge.json5   # then edit appId/appSecret/allowFrom
 bun run register-app                          # OR scan a QR to auto-create a Feishu app
-bun run start                                 # run in foreground
-bun run service:install                       # OR install as a launchd service
+bun run start                                 # foreground
+bun run service:install                       # OR launchd service (starts at login)
 ```
 
-Onboarding writes `appId`/`appSecret` into `.env` (a fallback credential source).
-The JSON5 config takes precedence; `.env` fills only missing fields.
+`register-app` writes `appId`/`appSecret` to `.env` (credential fallback). The
+JSON5 config takes precedence; `.env` fills only missing fields.
 
 ## Configuration (`feishu-bridge.json5`)
 
-See `config.example.json5` for the full annotated schema. Key sections:
-
-- **Access control** — `dmPolicy`, `allowFrom`, `groupPolicy`, `groupAllowFrom`,
-  `requireMention`, `groups.<chat_id>` overrides.
-- **Sessions** — `groupSessionScope`, `replyInThread`, `ompCwd`, `ompModel`,
-  `channelOverrides`.
-- **Rendering** — `renderMode`, `streaming.{mode,chunkMode}`, `textChunkLimit`,
-  `mediaMaxMb`, `typingIndicator`, `resolveSenderNames`.
-- **Reliability** — `streamIntervalMs`, `deliveryLedger`, `deliveryLedgerPath`.
-- **Feishu tools** — `tools.{doc,chat,wiki,drive,perm,scopes,bitable}`.
-- **Multi-account** — `accounts.<id>` (inherits top-level, deep-merges).
-- **Pairing** — `pairingTtlSeconds`, `dataDir`.
-
-Environment fallbacks (`.env`): `FEISHU_APP_ID`, `FEISHU_APP_SECRET`,
-`FEISHU_ALLOWED_OPEN_IDS`, `OMP_CWD`, `OMP_MODEL`, `FEISHU_LARK_INTERNATIONAL`.
-
-## Feishu workspace tools
-
-The bridge registers the official [`@larksuiteoapi/lark-mcp`](https://github.com/larksuite/lark-openapi-mcp)
-MCP server with omp sessions, gated by `tools.*` flags. Each family needs app scopes:
-
-| Family | Preset | Scopes |
-|---|---|---|
-| doc / wiki / drive | `preset.doc.default` | `docx:document`, `wiki:wiki`, `drive:drive` |
-| bitable | `preset.base.default` | `bitable:app` |
-| chat | `preset.im.default` | `im:chat`, `im:message` |
-| perm | (off by default) | `drive:permission` |
-
-Grant these in the Feishu app console for the families you enable.
-
-## Slash commands
-
-```
-/help          available commands (tier-aware)
-/whoami        your open_id, tier, command access
-/status        domain, ompCwd, current model, policies
-/reset         drop this chat's omp session
-/model [name]  show or (admin) set the model for this chat
-/sessions      (admin) list named sessions
-/resume <name>(admin) resume a named session
-```
-
-Feishu has no native slash menus — send these as plain text.
+See `config.example.json5` for the full annotated schema. Sections: access
+control, sessions, rendering, reliability, feishu tools, multi-account, pairing.
 
 ## Security
 
 - `autoApprove: true` — a headless bridge auto-approves omp tool calls. Keep
   `allowFrom` / `dmPolicy` locked to yourself.
-- Bot-to-bot messages are ignored unless `allowBots: true`.
-- Treat inbound text as untrusted input.
+- `.env` (secrets), `*.db` (sessions/pairing/ledger), `node_modules/` are
+  git-ignored.
+- Treat inbound message text as untrusted input.
 
-## Operating
+## Cross-verification note
 
-```bash
-bun run start                # foreground
-bun run service:install      # launchd (starts at login, restarts on crash)
-bun run service:uninstall
-tail -f bridge.stderr.log    # logs
-```
-
-## Notes
-
-- `replyInThread` and rich `post`/`audio`/`video` inbound types are scaffolded
-  but not fully wired — text/image/file are the battle-tested paths.
-- `/sessions` and `/resume` return empty until named-session bookkeeping lands;
-  the registry is in place so they activate without API churn.
+The "works" matrix above was checked against the **installed source** of the two
+reference plugins on this machine, not their marketing/docs pages. Where a
+reference plugin does something this bridge cannot (interactive approvals, drive
+comment rules, meeting join), the reason is stated explicitly — either an omp
+architecture limit (no blocking hook) or a cut subsystem.
