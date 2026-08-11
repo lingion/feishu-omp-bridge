@@ -17,9 +17,6 @@ Last verified: 2026-08-11 · Tested against a live Feishu self-built bot
 
 [中文说明](README.md) | **English**
 
-Current version: **0.2.0**
-Last verified: 2026-08-11 · Tested against a live Feishu self-built bot
-
 ```
 Feishu/Lark chat
       |
