@@ -234,14 +234,16 @@ class FeishuBridge {
 
 	/** Flush callback: merge a batched chat's items into one omp turn. */
 	private async handleBatchedTurn(key: string, items: BatchedItem[]): Promise<void> {
-		const { text, images } = mergeBatched(items);
-		await this.ensureSession(key);
-		const chatId = items[0]?.chatId ?? "";
-		const reply = new FeishuReply(this.client, chatId, this.cfg);
-		console.error(`[prompt] key=${key} batch=${items.length} model=${this.overrides.getModel(key) ?? this.cfg.ompModel ?? "(default)"}`);
-		const full = await this.omp.prompt(key, text, (delta) => reply.update(delta), images);
-		await reply.finish(full || "Turn complete.");
-		console.error(`[reply] key=${key} len=${full.length}c preview=${JSON.stringify(full.slice(0, 120))}`);
+		await this.chatLocks.run(key, async () => {
+			const { text, images } = mergeBatched(items);
+			await this.ensureSession(key);
+			const chatId = items[0]?.chatId ?? "";
+			const reply = new FeishuReply(this.client, chatId, this.cfg);
+			console.error(`[prompt] key=${key} batch=${items.length} model=${this.overrides.getModel(key) ?? this.cfg.ompModel ?? "(default)"}`);
+			const full = await this.omp.prompt(key, text, (delta) => reply.update(delta), images);
+			await reply.finish(full || "Turn complete.");
+			console.error(`[reply] key=${key} len=${full.length}c preview=${JSON.stringify(full.slice(0, 120))}`);
+		});
 	}
 
 	/** Extract text + any image attachments from an inbound message. */
