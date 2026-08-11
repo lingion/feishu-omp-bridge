@@ -1,0 +1,23 @@
+{
+  // Feishu/Lark channel config (aligns with OpenClaw channels.feishu.*)
+  // Credentials fall back to .env (FEISHU_APP_ID / FEISHU_APP_SECRET).
+
+  enabled: true,
+  domain: "feishu",
+
+  // Access control
+  dmPolicy: "allowlist",
+  allowFrom: ["ou_43f8876acff9a3b700d1b0959eaa0ba6"],
+
+  groupPolicy: "allowlist",
+  groupAllowFrom: ["oc_044b1128a764edb5f4cc23d86f73ac6b"],
+  requireMention: true,
+
+  // Sessions
+  groupSessionScope: "group",
+  ompCwd: "/Users/lingion_k",
+
+  // Rendering + reliability defaults (see config.example.json5 for all keys)
+  streaming: { mode: "partial", chunkMode: "length" },
+  deliveryLedger: true,
+}

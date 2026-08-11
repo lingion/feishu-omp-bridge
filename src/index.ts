@@ -7,14 +7,15 @@ import { CommandRegistry, type OverrideStore } from "./commands.ts";
 import { DeliveryLedger } from "./ledger.ts";
 import { SessionStore } from "./store.ts";
 import { scopeKey, isBotSender } from "./scope.ts";
-import { buildToolsetArg, anyToolsEnabled } from "./feishu-tools.ts";
-import { install as installService, uninstall as uninstallService } from "./service.ts";
+import { buildToolsetArg, anyToolsEnabled, installLarkMcp } from "./feishu-tools.ts";
 import { ChatLocks, CardActionDedup } from "./concurrency.ts";
+import { install as installService, uninstall as uninstallService } from "./service.ts";
 import { parsePostPayload, buildMarkdownPostPayload } from "./rich.ts";
 import { FeishuEvents } from "./events.ts";
 import { hydrateBotIdentity, messageMentionsBot, type BotIdentity } from "./mentions.ts";
 import type { IncomingMessage } from "./types.ts";
 import { SenderResolver } from "./sender.ts";
+import { MessageBatcher, mergeBatched, type BatchedItem } from "./batcher.ts";
 
 const FEISHU_TEXT_LIMIT = 4000;
 
@@ -48,6 +49,7 @@ class FeishuBridge {
 	private bot: BotIdentity = {};
 	private readonly events!: FeishuEvents;
 	private senderResolver!: SenderResolver;
+	private batcher!: MessageBatcher;
 	private readonly queues = new Map<string, Promise<void>>();
 
 	constructor() {
@@ -73,6 +75,7 @@ class FeishuBridge {
 			dataDir: cfg.dataDir,
 		});
 		this.senderResolver = new SenderResolver(this.client);
+		this.batcher = new MessageBatcher({}, (chatKey, items) => this.handleBatchedTurn(chatKey, items));
 		this.commands = new CommandRegistry(cfg, this.overrides);
 		this.events = new FeishuEvents({
 			client: this.client,
@@ -89,11 +92,12 @@ class FeishuBridge {
 		// Redeliver any replies orphaned by a previous crash.
 		if (this.cfg.deliveryLedger) await this.redeliverPending();
 
-		// Report Feishu tool scope guidance once at startup if enabled.
-		if (anyToolsEnabled(this.cfg)) {
-			const toolset = buildToolsetArg(this.cfg);
-			console.info("[feishu-tools] lark-mcp toolset:", toolset || "(none)");
-		}
+	// Register lark-mcp into omp's mcp.json so omp sessions gain Feishu tools.
+	if (anyToolsEnabled(this.cfg)) {
+		installLarkMcp(this.cfg);
+		const toolset = buildToolsetArg(this.cfg);
+		console.info("[feishu-tools] lark-mcp toolset:", toolset || "(none)");
+	}
 
 		const dispatcher = new lark.EventDispatcher({}).register({
 			"im.message.receive_v1": async (data) => {
@@ -213,29 +217,31 @@ class FeishuBridge {
 				await this.sendText(data.message.chat_id, "Send text or an image.");
 				return;
 			}
-
-		await this.ensureSession(key);
 		// Inject sender display name into omp context when enabled (Hermes resolveSenderNames).
 		let promptText = text || "(analyze this image)";
 		if (this.cfg.resolveSenderNames && openId) {
 			const name = await this.senderResolver.resolveName(openId);
 			if (name) promptText = `[from ${name}] ${promptText}`;
 		}
-		const reply = new FeishuReply(this.client, data.message.chat_id, this.cfg, data.message.message_id);
-		console.error(`[prompt] key=${key} model=${this.overrides.getModel(key) ?? this.cfg.ompModel ?? "(default)"}`);
-		const full = await this.omp.prompt(
-			key,
-			promptText,
-			(delta) => reply.update(delta),
-			images,
-		);
-			await reply.finish(full || "Turn complete.");
-			console.error(`[reply] key=${key} len=${full.length}c preview=${JSON.stringify(full.slice(0, 120))}`);
+		// Coalesce rapid messages into one omp turn (Hermes text batching).
+		this.batcher.add(key, { chatId: data.message.chat_id, text: promptText, images });
 		} finally {
 			if (this.cfg.typingIndicator) {
 				void this.media.clearTyping(data.message.message_id);
 			}
 		}
+	}
+
+	/** Flush callback: merge a batched chat's items into one omp turn. */
+	private async handleBatchedTurn(key: string, items: BatchedItem[]): Promise<void> {
+		const { text, images } = mergeBatched(items);
+		await this.ensureSession(key);
+		const chatId = items[0]?.chatId ?? "";
+		const reply = new FeishuReply(this.client, chatId, this.cfg);
+		console.error(`[prompt] key=${key} batch=${items.length} model=${this.overrides.getModel(key) ?? this.cfg.ompModel ?? "(default)"}`);
+		const full = await this.omp.prompt(key, text, (delta) => reply.update(delta), images);
+		await reply.finish(full || "Turn complete.");
+		console.error(`[reply] key=${key} len=${full.length}c preview=${JSON.stringify(full.slice(0, 120))}`);
 	}
 
 	/** Extract text + any image attachments from an inbound message. */
@@ -249,8 +255,8 @@ class FeishuBridge {
 		const content = data.message.content;
 		if (msgType === "text") {
 			try {
-				const text = (JSON.parse(content).text ?? "").replace(/<at[^>]*>.*?<\/at>/g, "").trim();
-				return { text, images: [] };
+				const raw = JSON.parse(content).text ?? "";
+				return { text: this.replaceMentionPlaceholders(raw, data), images: [] };
 			} catch {
 				return { text: "", images: [] };
 			}
@@ -328,6 +334,18 @@ class FeishuBridge {
 			return null;
 		}
 	}
+
+	/** Replace @_user_N / @_all placeholders with real names (Hermes mentions_map). */
+	private replaceMentionPlaceholders(text: string, data: IncomingMessage): string {
+		const mentions = data.message.mentions ?? [];
+		const byKey = new Map(mentions.map((m) => [m.key, m.name]));
+		const replaced = text.replace(/@_user_\d+/g, (ph) => {
+			const name = byKey.get(ph);
+			return name ? `@${name}` : ph;
+		});
+		return replaced.replace(/@_all/g, "@所有人").trim();
+	}
+
 	private async ensureSession(key: string): Promise<void> {
 		const mapping = this.store.get(key);
 		if (mapping) {

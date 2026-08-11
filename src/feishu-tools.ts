@@ -1,4 +1,8 @@
 import type { ResolvedConfig } from "./config-types.ts";
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { homedir } from "node:os";
+import JSON5 from "json5";
 
 /**
  * Feishu workspace tools.
@@ -56,8 +60,57 @@ export function scopesGuidance(cfg: ResolvedConfig): string {
 	if (lines.length === 0) return "No Feishu workspace tools enabled.";
 	return `Grant these scopes in the Feishu app console for the enabled tool families:\n${lines.join("\n")}`;
 }
-
 /** True if any Feishu workspace tool family is enabled. */
 export function anyToolsEnabled(cfg: ResolvedConfig): boolean {
 	return Object.values(cfg.tools).some((v) => v === true);
+}
+
+/** Path to omp's user-level MCP config (created if missing). */
+function ompMcpJsonPath(): string {
+	return join(homedir(), ".omp/agent/mcp.json");
+}
+
+/**
+ * Register `@larksuiteoapi/lark-mcp` into omp's user mcp.json so every omp
+ * session this bridge creates gains the enabled Feishu tool families (doc /
+ * wiki / drive / bitable / chat). Idempotent: re-runs just update the entry.
+ *
+ * This is the real wiring — without it the bridge only logs the intended
+ * toolset and omp has no Feishu tools at all.
+ */
+export function installLarkMcp(cfg: ResolvedConfig): void {
+	if (!anyToolsEnabled(cfg)) return;
+	const toolset = buildToolsetArg(cfg);
+	if (!toolset) return;
+	const path = ompMcpJsonPath();
+	let doc: { mcpServers?: Record<string, unknown> } = {};
+	if (existsSync(path)) {
+		try {
+			doc = JSON5.parse(readFileSync(path, "utf8")) as typeof doc;
+		} catch {
+			doc = {};
+		}
+	}
+	doc.mcpServers ??= {};
+	(doc.mcpServers as Record<string, unknown>)["lark"] = {
+		command: "npx",
+		args: [
+			"-y",
+			"@larksuiteoapi/lark-mcp",
+			"mcp",
+			"-a",
+			cfg.appId,
+			"-s",
+			cfg.appSecret,
+			"-d",
+			cfg.domainUrl,
+			"-l",
+			"zh",
+			"-t",
+			toolset,
+		],
+	};
+	mkdirSync(dirname(path), { recursive: true });
+	writeFileSync(path, JSON.stringify(doc, null, 2));
+	console.info(`[feishu-tools] lark-mcp registered in ${path} (toolset: ${toolset})`);
 }
