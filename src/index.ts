@@ -10,7 +10,7 @@ import { scopeKey, isBotSender } from "./scope.ts";
 import { buildToolsetArg, anyToolsEnabled, installLarkMcp } from "./feishu-tools.ts";
 import { ChatLocks, CardActionDedup } from "./concurrency.ts";
 import { install as installService, uninstall as uninstallService } from "./service.ts";
-import { parsePostPayload, buildMarkdownPostPayload } from "./rich.ts";
+import { parsePostPayload, buildMarkdownPostPayload, parseForwardPayload, parseShareChatPayload } from "./rich.ts";
 import { FeishuEvents } from "./events.ts";
 import { hydrateBotIdentity, messageMentionsBot, type BotIdentity } from "./mentions.ts";
 import type { IncomingMessage } from "./types.ts";
@@ -274,6 +274,12 @@ class FeishuBridge {
 		if (msgType === "post") {
 			// Rich text: flatten to plain text for omp.
 			return { text: parsePostPayload(content), images: [] };
+		}
+		if (msgType === "merge_forward") {
+			return { text: parseForwardPayload(content), images: [] };
+		}
+		if (msgType === "share_chat") {
+			return { text: parseShareChatPayload(content), images: [] };
 		}
 		if (msgType === "file" || msgType === "audio" || msgType === "video" || msgType === "media") {
 			// Hermes model: download to a persistent path; inline text/.md content,

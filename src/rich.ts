@@ -82,3 +82,72 @@ export function parsePostPayload(raw: unknown): string {
 	}
 	return lines.join("\n");
 }
+
+/** Read a first non-empty string from candidate fields (Hermes _first_non_empty_text). */
+function firstNonEmpty(obj: Record<string, unknown>, keys: string[]): string {
+	for (const k of keys) {
+		const v = obj[k];
+		if (typeof v === "string" && v.trim()) return v.trim();
+	}
+	return "";
+}
+
+/** Collect text entries from a merge-forward payload (Hermes _collect_forward_entries). */
+function collectForwardEntries(payload: Record<string, unknown>): string[] {
+	const candidates: unknown[] = [];
+	for (const key of ["messages", "items", "message_list", "records", "content"]) {
+		const v = payload[key];
+		if (Array.isArray(v)) candidates.push(...v);
+	}
+	const entries: string[] = [];
+	for (const item of candidates) {
+		if (typeof item !== "object" || item === null) {
+			const t = String(item ?? "").trim();
+			if (t) entries.push(`- ${t}`);
+			continue;
+		}
+		const o = item as Record<string, unknown>;
+		const sender = firstNonEmpty(o, ["sender_name", "user_name", "sender", "name"]);
+		const nestedType = String(o.message_type ?? o.msg_type ?? "").toLowerCase();
+		let body: string;
+		if (nestedType === "post") {
+			body = parsePostPayload(o.content);
+		} else {
+			body = firstNonEmpty(o, ["text", "summary", "preview", "content"]);
+		}
+		body = body.trim();
+		if (sender && body) entries.push(`- ${sender}: ${body}`);
+		else if (body) entries.push(`- ${body}`);
+	}
+	return Array.from(new Set(entries));
+}
+
+/** Parse a forwarded / merge-forward message into readable text (Hermes _normalize_merge_forward_message). */
+export function parseForwardPayload(raw: unknown): string {
+	let payload: Record<string, unknown>;
+	try {
+		payload = typeof raw === "string" ? JSON.parse(raw) : (raw as Record<string, unknown>);
+	} catch {
+		return "";
+	}
+	const title = firstNonEmpty(payload, ["title", "summary", "preview", "description"]);
+	const entries = collectForwardEntries(payload).slice(0, 8);
+	const lines = [title, ...entries].filter(Boolean);
+	return lines.join("\n").trim() || "[forwarded message]";
+}
+
+/** Parse a share_chat (shared group) message into text (Hermes _normalize_share_chat_message). */
+export function parseShareChatPayload(raw: unknown): string {
+	let payload: Record<string, unknown>;
+	try {
+		payload = typeof raw === "string" ? JSON.parse(raw) : (raw as Record<string, unknown>);
+	} catch {
+		return "";
+	}
+	const chatName = firstNonEmpty(payload, ["chat_name", "name", "title"]);
+	const shareId = firstNonEmpty(payload, ["chat_id", "open_chat_id", "share_chat_id"]);
+	const lines: string[] = [];
+	lines.push(chatName ? `Shared chat: ${chatName}` : "[shared chat]");
+	if (shareId) lines.push(`Chat ID: ${shareId}`);
+	return lines.join("\n");
+}
