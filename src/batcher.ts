@@ -17,6 +17,7 @@ export type BatchedItem = {
 
 export type BatchConfig = {
 	delayMs: number;
+	mediaDelayMs: number;
 	splitDelayMs: number;
 	maxMessages: number;
 	maxChars: number;
@@ -25,6 +26,7 @@ export type BatchConfig = {
 
 export const DEFAULT_BATCH_CONFIG: BatchConfig = {
 	delayMs: 600,
+	mediaDelayMs: 800,
 	splitDelayMs: 2000,
 	maxMessages: 8,
 	maxChars: 4000,
@@ -49,12 +51,13 @@ export class MessageBatcher {
 		buf.push(item);
 		this.buffers.set(chatId, buf);
 
-		const totalChars = buf.reduce((n, it) => n + it.text.length, 0);
-		if (buf.length >= this.cfg.maxMessages || totalChars >= this.cfg.maxChars) {
-			this.flushNow(chatId);
-			return;
-		}
-		this.schedule(chatId, item.text.length);
+	const totalChars = buf.reduce((n, it) => n + it.text.length, 0);
+	if (buf.length >= this.cfg.maxMessages || totalChars >= this.cfg.maxChars) {
+		this.flushNow(chatId);
+		return;
+	}
+	const hasImages = buf.some((it) => it.images.length > 0);
+	this.schedule(chatId, item.text.length, hasImages);
 	}
 
 	/** Force-flush a chat immediately (e.g. on shutdown). */
@@ -75,9 +78,13 @@ export class MessageBatcher {
 		for (const chatId of this.timers.keys()) this.flushNow(chatId);
 	}
 
-	private schedule(chatId: string, lastChunkLen: number): void {
-		// Adaptive: near the split threshold, wait longer for a continuation chunk.
-		const delay = lastChunkLen >= this.cfg.splitThreshold ? this.cfg.splitDelayMs : this.cfg.delayMs;
+	private schedule(chatId: string, lastChunkLen: number, hasMedia?: boolean): void {
+		// Adaptive: near the split threshold, wait longer; media items use mediaDelayMs.
+		const delay = hasMedia
+			? this.cfg.mediaDelayMs
+			: lastChunkLen >= this.cfg.splitThreshold
+				? this.cfg.splitDelayMs
+				: this.cfg.delayMs;
 		const existing = this.timers.get(chatId);
 		if (existing) clearTimeout(existing);
 		const timer = setTimeout(() => this.flushNow(chatId), delay);
