@@ -25,6 +25,12 @@ export class SessionStore {
 				updated_at TEXT NOT NULL
 			);
 		`);
+		this.db.exec(`
+			CREATE TABLE IF NOT EXISTS model_overrides (
+				chat_id TEXT PRIMARY KEY,
+				model   TEXT NOT NULL
+			);
+		`);
 	}
 
 	get(chatId: string): ChatSessionMapping | null {
@@ -74,6 +80,24 @@ export class SessionStore {
 		this.db.prepare("DELETE FROM chat_sessions WHERE chat_id = ?").run(chatId);
 	}
 
+	/** Per-chat model override (from /model). */
+	getModelOverride(chatId: string): string | undefined {
+		const row = this.db
+			.prepare("SELECT model FROM model_overrides WHERE chat_id = ?")
+			.get(chatId) as { model: string } | null;
+		return row?.model;
+	}
+	setModelOverride(chatId: string, model: string | undefined): void {
+		if (!model) {
+			this.db.prepare("DELETE FROM model_overrides WHERE chat_id = ?").run(chatId);
+			return;
+		}
+		this.db
+			.prepare(
+				"INSERT INTO model_overrides (chat_id, model) VALUES (?, ?) ON CONFLICT(chat_id) DO UPDATE SET model = excluded.model",
+			)
+			.run(chatId, model);
+	}
 	close(): void {
 		this.db.close();
 	}

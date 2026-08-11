@@ -1,0 +1,86 @@
+{
+  // Feishu/Lark channel configuration (aligns with OpenClaw channels.feishu.*)
+  // Docs: https://docs.openclaw.ai/channels/feishu
+  //
+  // Run `bun run register-app` to scan a QR code and auto-fill appId/appSecret.
+  // All keys are optional except appId/appSecret; missing keys use defaults.
+
+  enabled: true,
+
+  // Credentials. Domestic Feishu by default; set domain: "lark" for international.
+  appId: "",        // cli_xxx
+  appSecret: "",
+  domain: "feishu", // "feishu" | "lark"
+
+  // Event transport. WebSocket needs no public URL; webhook does.
+  connectionMode: "websocket",
+  defaultAccount: "default",
+
+  // ── Access control ──────────────────────────────────────────────────────
+  // Who can DM the bot.
+  dmPolicy: "allowlist",   // "pairing" | "allowlist" | "open"
+  allowFrom: [],           // open_id list (ou_xxx). "*" allowed only under dmPolicy:"open"
+
+  // Group chat behavior.
+  groupPolicy: "allowlist",// "open" | "allowlist" | "disabled"
+  groupAllowFrom: [],      // chat_id list (oc_xxx)
+  groupSenderAllowFrom: [],// open_id list applied to ALL groups
+  requireMention: true,    // @mention required in groups (false under "open")
+  allowBots: false,        // accept other bots that @mention this one
+  groups: {
+    // oc_xxx: { requireMention: false, allowFrom: ["ou_user1"] },
+  },
+
+  // ── Sessions ────────────────────────────────────────────────────────────
+  groupSessionScope: "group", // group | group_sender | group_topic | group_topic_sender
+  replyInThread: "disabled",  // disabled | enabled (bot replies create topic threads)
+  ompCwd: "~/.feishu-omp-workspace", // working dir for omp sessions
+  ompModel: null,             // pin a model for all chats, e.g. "anthropic/claude-sonnet-4"
+  defaultModel: null,
+
+  // Per-chat model + system prompt overrides (keyed by chat_id or thread id).
+  channelOverrides: {
+    // oc_xxx: { model: "anthropic/claude-sonnet-4", systemPrompt: "code reviewer" },
+  },
+
+  // ── Notifications + rendering ───────────────────────────────────────────
+  reactionNotifications: "own", // off | own | all
+  renderMode: "auto",           // auto | raw | card
+  streaming: {
+    mode: "partial",            // partial (card updates) | off (one message)
+    chunkMode: "length",        // length | newline
+  },
+  textChunkLimit: 4000,
+  mediaMaxMb: 30,
+  typingIndicator: true,
+  resolveSenderNames: true,
+
+  // Admin/user slash-command split. Empty adminAllowFrom = everyone is admin.
+  adminAllowFrom: [],
+  userAllowedCommands: ["help", "status", "model"],
+
+  // ── Reliability + cadence ───────────────────────────────────────────────
+  streamIntervalMs: 700,     // card edit debounce
+  deliveryLedger: true,      // at-least-once redelivery after crash
+  deliveryLedgerPath: null,  // defaults under dataDir
+
+  // ── Feishu workspace tools (require extra scopes) ───────────────────────
+  tools: {
+    doc: true,
+    chat: true,
+    wiki: true,
+    drive: true,
+    perm: false,   // sensitive: off by default
+    scopes: true,
+    bitable: true,
+  },
+
+  // Named accounts (multi-bot). Each inherits top-level, deep-merges overrides.
+  accounts: {
+    // backup: { appId: "cli_yyy", appSecret: "yyy", enabled: false },
+  },
+
+  // Pairing code lifetime + persistence dir.
+  pairingTtlSeconds: 3600,
+  dataDir: "~/.feishu-omp-bridge",
+}

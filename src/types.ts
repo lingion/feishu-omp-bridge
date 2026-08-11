@@ -20,10 +20,9 @@ export type IncomingMessage = {
 	};
 	message: {
 		message_id: string;
-		root_id?: string;
-		parent_id?: string;
-		create_time: string;
 		chat_id: string;
+		thread_id?: string;
+		create_time: string;
 		chat_type: string;
 		message_type: string;
 		content: string;
