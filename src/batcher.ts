@@ -16,6 +16,7 @@ export type BatchedItem = {
 	images: Array<{ data: string; mimeType: string }>;
 };
 export type BatchConfig = {
+	delayMs: number;
 	mediaDelayMs: number;
 	splitDelayMs: number;
 	maxMessages: number;

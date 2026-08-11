@@ -218,7 +218,7 @@ class FeishuBridge {
 	this.batcher.add(key, { chatId: data.message.chat_id, messageId: data.message.message_id, text: promptText, images });
 		}
 		// Coalesce rapid messages into one omp turn (Hermes text batching).
-		this.batcher.add(key, { chatId: data.message.chat_id, text: promptText, images });
+		this.batcher.add(key, { chatId: data.message.chat_id, messageId: data.message.message_id, text: promptText, images });
 	}
 
 	private async handleBatchedTurn(key: string, items: BatchedItem[]): Promise<void> {
