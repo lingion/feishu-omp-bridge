@@ -93,6 +93,17 @@ export class FeishuMedia {
 		}
 	}
 
+	/** Delete a sent message (Hermes: supports recall via API). */
+	async deleteMessage(messageId: string): Promise<boolean> {
+		try {
+			const res = await this.client.im.v1.message.delete({
+				path: { message_id: messageId },
+			});
+			return res?.code === 0;
+		} catch {
+			return false;
+		}
+	}
 	/** Upload a local image and send it as an image message. Returns message_id. */
 	async sendImage(chatId: string, imagePath: string): Promise<string | undefined> {
 		const imageKey = await this.uploadImage(imagePath);
