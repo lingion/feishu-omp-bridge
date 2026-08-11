@@ -11,12 +11,11 @@
  */
 export type BatchedItem = {
 	chatId: string;
+	messageId: string;
 	text: string;
 	images: Array<{ data: string; mimeType: string }>;
 };
-
 export type BatchConfig = {
-	delayMs: number;
 	mediaDelayMs: number;
 	splitDelayMs: number;
 	maxMessages: number;

@@ -189,51 +189,43 @@ class FeishuBridge {
 			return;
 		}
 
-		// Typing indicator (best-effort).
-		if (this.cfg.typingIndicator) {
-			void this.media.typing(data.message.message_id);
-		}
-
-		try {
+		// Typing indicator moved to handleBatchedTurn (batch-wide).
 		const { text, images } = await this.extractContent(data);
 		console.error(`[content] key=${key} text=${JSON.stringify(text.slice(0, 60))} (${text.length}c) images=${images.length}`);
-			// Slash commands route first.
-			if (text.startsWith("/")) {
-				const routed = await this.commands.route(text, {
-					chatId: data.message.chat_id,
-					openId,
-					args: "",
-					reply: (t) => this.sendText(data.message.chat_id, t),
-					omp: this.omp,
-					access: this.access,
-				});
-				if (routed.handled) {
-					if (routed.output) await this.sendText(data.message.chat_id, routed.output);
-					return;
-				}
-			}
-
-			if (!text && images.length === 0) {
-				await this.sendText(data.message.chat_id, "Send text or an image.");
+		// Slash commands route first.
+		if (text.startsWith("/")) {
+			const routed = await this.commands.route(text, {
+				chatId: data.message.chat_id,
+				openId,
+				args: "",
+				reply: (t) => this.sendText(data.message.chat_id, t),
+				omp: this.omp,
+				access: this.access,
+			});
+			if (routed.handled) {
+				if (routed.output) await this.sendText(data.message.chat_id, routed.output);
 				return;
 			}
+		}
+		if (!text && images.length === 0) {
+			await this.sendText(data.message.chat_id, "Send text or an image.");
+			return;
+		}
 		// Inject sender display name into omp context when enabled (Hermes resolveSenderNames).
 		let promptText = text || "(analyze this image)";
 		if (this.cfg.resolveSenderNames && openId) {
 			const name = await this.senderResolver.resolveName(openId);
-			if (name) promptText = `[from ${name}] ${promptText}`;
+	this.batcher.add(key, { chatId: data.message.chat_id, messageId: data.message.message_id, text: promptText, images });
 		}
 		// Coalesce rapid messages into one omp turn (Hermes text batching).
 		this.batcher.add(key, { chatId: data.message.chat_id, text: promptText, images });
-		} finally {
-			if (this.cfg.typingIndicator) {
-				void this.media.clearTyping(data.message.message_id);
-			}
-		}
 	}
 
-	/** Flush callback: merge a batched chat's items into one omp turn. */
 	private async handleBatchedTurn(key: string, items: BatchedItem[]): Promise<void> {
+		const firstMsgId = items[0]?.messageId;
+		if (this.cfg.typingIndicator && firstMsgId) {
+			void this.media.typing(firstMsgId);
+		}
 		await this.chatLocks.run(key, async () => {
 			const { text, images } = mergeBatched(items);
 			await this.ensureSession(key);
@@ -244,6 +236,10 @@ class FeishuBridge {
 			await reply.finish(full || "Turn complete.");
 			console.error(`[reply] key=${key} len=${full.length}c preview=${JSON.stringify(full.slice(0, 120))}`);
 		});
+		// Clear typing after batch turn completes.
+		if (this.cfg.typingIndicator && firstMsgId) {
+			void this.media.clearTyping(firstMsgId);
+		}
 	}
 
 	/** Extract text + any image attachments from an inbound message. */
