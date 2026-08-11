@@ -29,7 +29,12 @@ export class FeishuEvents {
 	/** Bot was added to a group. */
 	async onBotAdded(chatId: string): Promise<void> {
 		console.error(`[event] bot added to chat ${chatId}`);
-		// Hermes greets; we keep it quiet to avoid noise unless groupPolicy is open.
+		// Greet the group so members know the bot is live (OpenClaw greets on join).
+		await this.deps.notify(
+			chatId,
+			"omp 已入群 👋",
+			"我是 omp 飞书桥。**@我** 或在话题里发消息,我就会开始干活。",
+		);
 	}
 
 	/** Bot was removed from a group. */

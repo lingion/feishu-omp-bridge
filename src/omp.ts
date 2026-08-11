@@ -130,18 +130,41 @@ export class OmpSessionManager {
 		const session = this.sessions.get(scopeKey);
 		if (!session) return;
 		this.sessions.delete(scopeKey);
-	session.beginDispose();
-	await session.dispose();
+		session.beginDispose();
+		await session.dispose();
 	}
-	/** List named sessions for a chat (placeholder: reads omp's session dir). */
-	async listNamed(scopeKey: string): Promise<NamedSession[]> {
-		// Named-session bookkeeping is a future enhancement; return empty for now.
-		void scopeKey;
-		return [];
+
+	/** Abort the in-progress turn for a chat (Hermes /stop). */
+	async abort(scopeKey: string): Promise<boolean> {
+		const session = this.sessions.get(scopeKey);
+		if (!session) return false;
+		await session.abort();
+		return true;
 	}
-	/** Resume a named session (placeholder). */
-	async resumeNamed(_scopeKey: string, _name: string): Promise<boolean> {
-		return false;
+
+	/** Context-usage snapshot for /usage (tokens / context window). */
+	async getContextUsage(scopeKey: string): Promise<string> {
+		const session = this.sessions.get(scopeKey);
+		if (!session) return "no active session";
+		const usage = await session.getContextUsage();
+		return JSON.stringify(usage);
+	}
+
+	/** List persisted omp sessions for this bridge's cwd (Hermes /sessions). */
+	async listNamed(_scopeKey: string): Promise<NamedSession[]> {
+		const infos = await SessionManager.list(this.options.cwd);
+		return infos
+			.slice(0, 20)
+			.map((s) => ({ id: s.id, name: s.title ?? s.id }));
+	}
+
+	/** Resume a named session by title/id. */
+	async resumeNamed(scopeKey: string, name: string): Promise<boolean> {
+		const infos = await SessionManager.list(this.options.cwd);
+		const match = infos.find((s) => s.title === name || s.id === name);
+		if (!match) return false;
+		await this.resume(scopeKey, match.path);
+		return true;
 	}
 
 	/** Tear down every active session. */

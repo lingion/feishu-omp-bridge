@@ -12,7 +12,9 @@ import { install as installService, uninstall as uninstallService } from "./serv
 import { ChatLocks, CardActionDedup } from "./concurrency.ts";
 import { parsePostPayload, buildMarkdownPostPayload } from "./rich.ts";
 import { FeishuEvents } from "./events.ts";
+import { hydrateBotIdentity, messageMentionsBot, type BotIdentity } from "./mentions.ts";
 import type { IncomingMessage } from "./types.ts";
+import { SenderResolver } from "./sender.ts";
 
 const FEISHU_TEXT_LIMIT = 4000;
 
@@ -43,7 +45,9 @@ class FeishuBridge {
 	private readonly overrides: ModelOverrideStore;
 	private readonly chatLocks = new ChatLocks();
 	private readonly cardDedup = new CardActionDedup();
+	private bot: BotIdentity = {};
 	private readonly events!: FeishuEvents;
+	private senderResolver!: SenderResolver;
 	private readonly queues = new Map<string, Promise<void>>();
 
 	constructor() {
@@ -68,6 +72,7 @@ class FeishuBridge {
 			mediaMaxMb: cfg.mediaMaxMb,
 			dataDir: cfg.dataDir,
 		});
+		this.senderResolver = new SenderResolver(this.client);
 		this.commands = new CommandRegistry(cfg, this.overrides);
 		this.events = new FeishuEvents({
 			client: this.client,
@@ -78,6 +83,9 @@ class FeishuBridge {
 	}
 
 	async run(): Promise<void> {
+		// Hydrate bot identity for precise @bot detection (Hermes _hydrate_bot_identity).
+		this.bot = await hydrateBotIdentity(this.client);
+		console.info("[bot-identity] open_id:", this.bot.openId ?? "(unknown)", "name:", this.bot.name ?? "(unknown)");
 		// Redeliver any replies orphaned by a previous crash.
 		if (this.cfg.deliveryLedger) await this.redeliverPending();
 
@@ -155,10 +163,10 @@ class FeishuBridge {
 		}
 		const openId = data.sender.sender_id?.open_id ?? "";
 		const isGroup = data.message.chat_type === "group";
-		const mentionedBot = (data.message.mentions ?? []).length > 0;
+		const mentionedBot = messageMentionsBot(data, this.bot);
 		console.error(
 			`[inbound] key=${key} type=${data.message.message_type} ` +
-				`chatType=${data.message.chat_type} from=${openId} mid=${data.message.message_id}`,
+				`chatType=${data.message.chat_type} from=${openId} mentionedBot=${mentionedBot} mid=${data.message.message_id}`,
 		);
 
 
@@ -206,15 +214,21 @@ class FeishuBridge {
 				return;
 			}
 
-			await this.ensureSession(key);
-			const reply = new FeishuReply(this.client, data.message.chat_id, this.cfg);
-			console.error(`[prompt] key=${key} model=${this.overrides.getModel(key) ?? this.cfg.ompModel ?? "(default)"}`);
-			const full = await this.omp.prompt(
-				key,
-				text || "(analyze this image)",
-				(delta) => reply.update(delta),
-				images,
-			);
+		await this.ensureSession(key);
+		// Inject sender display name into omp context when enabled (Hermes resolveSenderNames).
+		let promptText = text || "(analyze this image)";
+		if (this.cfg.resolveSenderNames && openId) {
+			const name = await this.senderResolver.resolveName(openId);
+			if (name) promptText = `[from ${name}] ${promptText}`;
+		}
+		const reply = new FeishuReply(this.client, data.message.chat_id, this.cfg, data.message.message_id);
+		console.error(`[prompt] key=${key} model=${this.overrides.getModel(key) ?? this.cfg.ompModel ?? "(default)"}`);
+		const full = await this.omp.prompt(
+			key,
+			promptText,
+			(delta) => reply.update(delta),
+			images,
+		);
 			await reply.finish(full || "Turn complete.");
 			console.error(`[reply] key=${key} len=${full.length}c preview=${JSON.stringify(full.slice(0, 120))}`);
 		} finally {
@@ -385,9 +399,9 @@ class FeishuReply {
 	constructor(
 		private readonly client: lark.Client,
 		private readonly chatId: string,
-		private readonly cfg: { streamIntervalMs: number; streaming: { mode: string } },
+		private readonly cfg: { streamIntervalMs: number; streaming: { mode: string }; replyInThread: string },
+		private readonly replyToMessageId?: string,
 	) {}
-
 	update(delta: string): void {
 		if (this.cfg.streaming.mode === "off") return; // one-shot mode: buffer only
 		this.latest += delta;
@@ -414,10 +428,23 @@ class FeishuReply {
 		const next = truncate(this.latest);
 		if (next === this.rendered) return;
 		if (!this.cardMessageId) {
-			const res = await this.client.im.v1.message.create({
-				params: { receive_id_type: "chat_id" },
-				data: { receive_id: this.chatId, content: buildCardContent(next), msg_type: "interactive" },
-			});
+			const content = buildCardContent(next);
+			const res = this.replyToMessageId
+				? await this.client.im.v1.message.reply({
+						data: {
+							content,
+							msg_type: "interactive",
+							// replyInThread enabled: root reply creates a topic thread;
+							// subsequent group messages in that thread route to the same omp
+							// session via groupSessionScope: group_topic (scopeKey uses thread_id).
+							reply_in_thread: this.cfg.replyInThread === "enabled",
+						},
+						path: { message_id: this.replyToMessageId },
+					})
+				: await this.client.im.v1.message.create({
+						params: { receive_id_type: "chat_id" },
+						data: { receive_id: this.chatId, content, msg_type: "interactive" },
+					});
 			this.cardMessageId = res.data?.message_id;
 		} else {
 			await this.client.im.v1.message.patch({

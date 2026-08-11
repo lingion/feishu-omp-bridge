@@ -75,6 +75,24 @@ export class FeishuMedia {
 		const buf = await readFile(path);
 		return { path, fileName: safeName, mimeType: sniffMime(safeName, buf) };
 	}
+
+	/**
+	 * Edit a previously sent text/post message (Hermes edit_message via
+	 * im.v1.message.update). Falls back to plain text if a post payload is rejected.
+	 */
+	async editMessage(messageId: string, text: string): Promise<boolean> {
+		try {
+			const res = await this.client.im.v1.message.update({
+				data: { content: JSON.stringify({ text }), msg_type: "text" },
+				path: { message_id: messageId },
+			});
+			return res?.code === 0;
+		} catch (err) {
+			console.error("editMessage failed:", String(err).slice(0, 120));
+			return false;
+		}
+	}
+
 	/** Upload a local image and send it as an image message. Returns message_id. */
 	async sendImage(chatId: string, imagePath: string): Promise<string | undefined> {
 		const imageKey = await this.uploadImage(imagePath);

@@ -159,6 +159,23 @@ export class CommandRegistry {
 				if (!ctx.args) return "Usage: /resume <name>";
 				const ok = await ctx.omp.resumeNamed(ctx.chatId, ctx.args);
 				return ok ? `Resumed session: ${ctx.args}` : `No session named "${ctx.args}".`;
+		},
+	});
+
+		this.register({
+			name: "stop",
+			description: "Abort the running omp turn for this chat",
+			execute: async (ctx) => {
+				const ok = await ctx.omp.abort(ctx.chatId);
+				return ok ? "Aborted current turn." : "No active turn to abort.";
+			},
+		});
+
+		this.register({
+			name: "usage",
+			description: "Show context/token usage for this chat's session",
+			execute: async (ctx) => {
+				return await ctx.omp.getContextUsage(ctx.chatId);
 			},
 		});
 	}
