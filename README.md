@@ -97,26 +97,26 @@ Each gap is either an omp architecture limit or a deliberately-cut subsystem.
 
 | Test | Result |
 |---|---|
-| Text message → streaming card reply | ✅ |
-| Image message → omp sees image | ✅ |
-| `.txt` file → content inlined, omp read it | ✅ |
-| `.pdf` file → saved + omp used `read` tool | ✅ |
-| Slash commands (`/help`, `/status`, `/model`, `/reset`, `/whoami`, `/stop`, `/usage`) | ✅ |
-| Multi-session persistence + resume across restart | ✅ |
-| Access control (allowlist deny stranger) | ✅ |
-| Group chat @bot detection + reply | ✅ |
-| Bot-added group greeting | ✅ |
-| Reaction typing indicator (OK emoji) | ✅ |
+| Text message → streaming card reply | ✓ |
+| Image message → omp sees image | ✓ |
+| `.txt` file → content inlined, omp read it | ✓ |
+| `.pdf` file → saved + omp used `read` tool | ✓ |
+| Slash commands (`/help`, `/status`, `/model`, `/reset`, `/whoami`, `/stop`, `/usage`) | ✓ |
+| Multi-session persistence + resume across restart | ✓ |
+| Access control (allowlist deny stranger) | ✓ |
+| Group chat @bot detection + reply | ✓ |
+| Bot-added group greeting | ✓ |
+| Reaction typing indicator (OK emoji) | ✓ |
 
 ### Unit-verified
 
 | Module | Check |
 |---|---|
-| `rich.ts` post parse/build | ✅ flattens post→text; code-fence isolation → 3 rows |
-| `concurrency.ts` chat lock | ✅ same-chat serial A→B, different-chat concurrent |
-| `concurrency.ts` card dedup | ✅ first=false, repeat=true |
-| `rich.ts` forward/merge-forward parse | ✅ extracts sender+body correct |
-| `tsc --noEmit` | ✅ zero errors |
+| `rich.ts` post parse/build | ✓ flattens post→text; code-fence isolation → 3 rows |
+| `concurrency.ts` chat lock | ✓ same-chat serial A→B, different-chat concurrent |
+| `concurrency.ts` card dedup | ✓ first=false, repeat=true |
+| `rich.ts` forward/merge-forward parse | ✓ extracts sender+body correct |
+| `tsc --noEmit` | ✓ zero errors |
 
 ### Not yet tested live
 
@@ -184,8 +184,8 @@ Send as plain text — Feishu has no native slash menus.
 | `/model [name]` | Show or (admin) set the model for this chat | set |
 | `/stop` | Abort the running omp turn | |
 | `/usage` | Context/token usage stats | |
-| `/sessions` | List persisted sessions | ✅ |
-| `/resume <name>` | Resume a named session | ✅ |
+| `/sessions` | List persisted sessions | yes |
+| `/resume <name>` | Resume a named session | yes |
 
 ## Operation
 

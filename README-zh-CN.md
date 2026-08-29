@@ -95,26 +95,26 @@ omp createAgentSession SDK → omp coding agent
 
 | 测试项 | 结果 |
 |---|---|
-| 文本 → 流式卡片回复 | ✅ |
-| 图片 → omp 看图 | ✅ |
-| `.txt` 文件 → 内容 inline，omp 读到 | ✅ |
-| `.pdf` 文件 → 保存 + omp `read` 工具打开 | ✅ |
-| 斜杠命令（`/help` `/status` `/model` `/reset` `/whoami` `/stop` `/usage`） | ✅ |
-| 多会话持久化 + 重启恢复 | ✅ |
-| 访问控制（陌生人不放行） | ✅ |
-| 群聊 @bot 检测 + 回复 | ✅ |
-| 入群打招呼 | ✅ |
-| 打字指示器（OK reaction） | ✅ |
+| 文本 → 流式卡片回复 | ✓ |
+| 图片 → omp 看图 | ✓ |
+| `.txt` 文件 → 内容 inline，omp 读到 | ✓ |
+| `.pdf` 文件 → 保存 + omp `read` 工具打开 | ✓ |
+| 斜杠命令（`/help` `/status` `/model` `/reset` `/whoami` `/stop` `/usage`） | ✓ |
+| 多会话持久化 + 重启恢复 | ✓ |
+| 访问控制（陌生人不放行） | ✓ |
+| 群聊 @bot 检测 + 回复 | ✓ |
+| 入群打招呼 | ✓ |
+| 打字指示器（OK reaction） | ✓ |
 
 ### 单元验证
 
 | 模块 | 检查项 |
 |---|---|
-| `rich.ts` post 解析/构建 | ✅ 展平 post→text; fenced code-block 分隔为 3 行 |
-| `concurrency.ts` chat lock | ✅ 同 chat 串行 A→B，不同 chat 并发 |
-| `concurrency.ts` card dedup | ✅ 首次 false，重复 true |
-| `rich.ts` forward/merge-forward 解析 | ✅ sender+body 正确提取 |
-| `tsc --noEmit` | ✅ 零错误 |
+| `rich.ts` post 解析/构建 | ✓ 展平 post→text; fenced code-block 分隔为 3 行 |
+| `concurrency.ts` chat lock | ✓ 同 chat 串行 A→B，不同 chat 并发 |
+| `concurrency.ts` card dedup | ✓ 首次 false，重复 true |
+| `rich.ts` forward/merge-forward 解析 | ✓ sender+body 正确提取 |
+| `tsc --noEmit` | ✓ 零错误 |
 
 ### 尚未实测
 
@@ -182,8 +182,8 @@ bun run service:install
 | `/model [名称]` | 查看或（管理员）设置本 chat 模型 | 设置 |
 | `/stop` | 中断正在跑的 omp turn | |
 | `/usage` | 上下文/token 用量 | |
-| `/sessions` | 列出已持久化 session | ✅ |
-| `/resume <名称>` | 按名恢复 session | ✅ |
+| `/sessions` | 列出已持久化 session | 是 |
+| `/resume <名称>` | 按名恢复 session | 是 |
 
 ## 运维
 
